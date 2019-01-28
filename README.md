@@ -1,2 +1,2 @@
-# CCPatchManager
-A utility for saving patches of midi controller values
+# CCPatch
+A utility for creating, saving, and loading patches of midi controller values
