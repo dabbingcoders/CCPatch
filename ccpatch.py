@@ -64,14 +64,14 @@ class CCPatch:
             print("Patch file "+filename+" does not exist")
 
     def save(self):
-        print("Saving to file...")
-        #print(json.dumps(self.values))
-        timestr = time.strftime("%Y%m%d%H%M%S")
+        filename = "patch-"+time.strftime("%Y%m%d%H%M")+".json" 
         try:
-            with open("ccpatch-"+timestr+'.json', 'w') as f:
+            with open(filename, 'w') as f:
                 json.dump(self.values, f)
         except:
             print("Error saving patch file")
+            return
+        print("Saved patch file "+filename+" to file...")
 
     def broadcast(self):
         print("Broadcasting current patch...")
@@ -85,9 +85,7 @@ class CCPatch:
                 self.values[message.channel][message.control] = message.value
                 self.lastCCMessage = self.currCCMessage
         elif message.type == 'sysex' and message.bytes()[3]==6:
-            print(message.bytes()[4])
             if (message.bytes()[4]==1):
-                print(message)
                 self.save()
             elif (message.bytes()[4]==2):
                 print("Transmitting CC vals...")
@@ -101,4 +99,4 @@ if len(sys.argv) > 1:
     patch.load(sys.argv[1])
 
 while True:
-   pass  
+    continue
