@@ -1,4 +1,5 @@
 from collections import defaultdict
+import collections
 import os
 import sys
 import mido
@@ -76,6 +77,10 @@ class CCPatch:
     def broadcast(self):
         print("Broadcasting current patch...")
 
+        for channeldata in self.values.items():
+            for controldata in channeldata[1].items():
+                print(str(channeldata[0])+":"+str(controldata[0])+":"+str(controldata[1]))
+
     def onMessage(self, name, message):
         if message.type == 'control_change': 
             self.lastCCMessage = None
@@ -97,6 +102,8 @@ patch.configure()
 
 if len(sys.argv) > 1:
     patch.load(sys.argv[1])
+
+patch.broadcast()
 
 while True:
     continue
