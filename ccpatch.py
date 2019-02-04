@@ -65,7 +65,7 @@ class CCPatch:
         print("Attempting to connect to " + INSTRUMENT_DEVICE + "...")
         try:
             device = self.getPortName(INSTRUMENT_DEVICE)
-            self.instumentPort = mido.open_output(device)
+            self.instrumentPort = mido.open_output(device)
             print("Successfully connected to " + device)
         except Exception as e:
             print('Unable to open MIDI output: {}'.format(INSTRUMENT_DEVICE), file=sys.stderr)
@@ -93,10 +93,11 @@ class CCPatch:
 
     def broadcast(self):
         print("Broadcasting current patch...")
-
         for channeldata in self.values.items():
             for controldata in channeldata[1].items():
                 print(str(channeldata[0])+":"+str(controldata[0])+":"+str(controldata[1]))
+                self.instrumentPort.send(mido.Message('control_change', channel=int(channeldata[0]),control=int(controldata[0]),value=int(controldata[1])))
+
 
     def onMessage(self, name, message):
         if message.type == 'control_change': 
@@ -110,7 +111,7 @@ class CCPatch:
             if (message.bytes()[4]==1):
                 self.save()
             elif (message.bytes()[4]==2):
-                print("Transmitting CC vals...")
+                patch.broadcast()
         else:
             print(message)
 
@@ -119,8 +120,6 @@ patch.configure()
 
 if len(sys.argv) > 1:
     patch.load(sys.argv[1])
-
-patch.broadcast()
 
 while True:
     continue
