@@ -75,7 +75,8 @@ class CCPatch:
         if os.path.isfile(filename):
             try:
                 with open(filename) as json_file:  
-                    self.values = json.load(json_file)
+                    dict = json.load(json_file)
+                    self.values = defaultdict(defaultdict,dict)
             except:
                 print("Error loading patch file: "+filename)
         else:
@@ -95,8 +96,8 @@ class CCPatch:
         print("Broadcasting current patch...")
         for channeldata in self.values.items():
             for controldata in channeldata[1].items():
-                print(str(channeldata[0])+":"+str(controldata[0])+":"+str(controldata[1]))
                 self.instrumentPort.send(mido.Message('control_change', channel=int(channeldata[0]),control=int(controldata[0]),value=int(controldata[1])))
+                self.controllerPort.send(mido.Message('control_change', channel=int(channeldata[0]),control=int(controldata[0]),value=int(controldata[1])))
 
 
     def onMessage(self, name, message):
@@ -104,8 +105,7 @@ class CCPatch:
             self.lastCCMessage = None
             self.currCCMessage = (name, message.channel, message.control, message.value)
             if  self.currCCMessage != self.lastCCMessage:
-                print("CH: %03d CC: %03d VL: %03d" % (message.channel,message.control,message.value))
-                self.values[message.channel][message.control] = message.value
+                self.values[message.channel-1][message.control] = message.value
                 self.lastCCMessage = self.currCCMessage
         elif message.type == 'sysex' and message.bytes()[3]==6:
             if (message.bytes()[4]==1):
