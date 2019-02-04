@@ -6,7 +6,7 @@ import mido
 import pickle
 import json
 import time
-
+import re
 
 #########################################################################################
 #                                                                                       #
@@ -21,15 +21,24 @@ import time
 #                                                                                       #
 #########################################################################################
 
+CONTROLLER_DEVICE    =   "BeatStep"
+INSTRUMENT_DEVICE    =   "in_from_ccpatch"
 MIDI_CC_NUMS = range(12,28)
 
 class CCPatch:
+    controllerPort = None
+    instrumentPort = None
     lastMessage = None
     currMessage = None
     values = defaultdict(dict)
 
+    def cleanName(self,name):
+        return name[:name.rfind(' ')]
+
     def configure(self):
-        self.connect()
+        mido.set_backend('mido.backends.rtmidi')
+        self.connectController()
+        self.connectInstrument()
 
     def getCurrentChannel(self):
         if self.currMessage == None: return 0
@@ -37,21 +46,29 @@ class CCPatch:
     
     def keyExists(self,key):
         return key in self.values.keys()
-    
-    def connect(self):
-        print('Connecting MIDI devices')
-        mido.set_backend('mido.backends.rtmidi')
-        controllerNames = mido.get_input_names()
 
-        if not controllerNames: return
+    def getPortName(self,pattern):
+        for portName in mido.get_input_names()+mido.get_output_names():
+            if re.search(pattern,portName):
+                return portName
 
-        for name in controllerNames:
-            try:
-                cleanName = name[:name.rfind(' ')]
-                print("Connecting " + cleanName)
-                mido.open_input(name, callback=lambda m, cn=cleanName: self.onMessage(cn, m))
-            except Exception as e:
-                print('Unable to open MIDI input: {}'.format(name), file=sys.stderr)
+    def connectController(self):
+        print("Attempting to connect to " + CONTROLLER_DEVICE + "...")
+        try:
+            device = self.getPortName(CONTROLLER_DEVICE)
+            self.controllerPort = mido.open_ioport(device, callback=lambda m, cn=self.cleanName(device): self.onMessage(cn, m))
+            print("Successfully connected to " + device)
+        except Exception as e:
+            print('Unable to open MIDI ports: {}'.format(CONTROLLER_DEVICE), file=sys.stderr)
+
+    def connectInstrument(self):
+        print("Attempting to connect to " + INSTRUMENT_DEVICE + "...")
+        try:
+            device = self.getPortName(INSTRUMENT_DEVICE)
+            self.instumentPort = mido.open_output(device)
+            print("Successfully connected to " + device)
+        except Exception as e:
+            print('Unable to open MIDI output: {}'.format(INSTRUMENT_DEVICE), file=sys.stderr)
 
     def load(self,filename):
         print("Loading patch file "+filename)
