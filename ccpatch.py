@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 from collections import defaultdict
 import collections
 import os
@@ -23,7 +24,6 @@ import re
 
 CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
-MIDI_CC_NUMS = range(12,28)
 
 class CCPatch:
     controllerPort = None
@@ -31,7 +31,10 @@ class CCPatch:
     lastMessage = None
     currMessage = None
     values = defaultdict(dict)
-
+    ccMap = {}
+    for control in range(12,27):
+        ccMap[control] = control+8
+        
     def cleanName(self,name):
         return name[:name.rfind(' ')]
 
@@ -93,11 +96,34 @@ class CCPatch:
         print("Saved patch file "+filename+" to file...")
 
     def broadcast(self):
-        print("Broadcasting current patch...")
+    
+        # loop through patch values for each control on each channel
+            # set the beatstep encoder min and max to the value in the patch
+            # prompt the user to tweak the encoder
+            # set the encoder min and max back to 0 and 127
+            # prompt for the next encoder
+
         for channeldata in self.values.items():
             for controldata in channeldata[1].items():
-                self.instrumentPort.send(mido.Message('control_change', channel=int(channeldata[0]),control=int(controldata[0]),value=int(controldata[1])))
-                self.controllerPort.send(mido.Message('control_change', channel=int(channeldata[0]),control=int(controldata[0]),value=int(controldata[1])))
+               sysex=[0xF0,0x00,0x20,0x6B,0x7F,0x42,0x02,0x00,0x04,0x20,0x23,0xF7]
+
+# Set minimum val of encoders F0 00 20 6B 7F 42 02 00 04 20 23 F7
+#        print("Broadcasting current patch...")
+#        for channeldata in self.values.items():
+#            for controldata in channeldata[1].items():
+#                self.instrumentPort.send(mido.Message('control_change', channel=int(channeldata[0]),control=int(controldata[0]),value=int(controldata[1])))
+
+                #F0 00 20 6B 7F 42 02 00 00 2x vv F7
+                #240 00, 32, 107, 127, 66, 02, 00, 00, 20, 127
+                #self.controllerPort.send(mido.Message('sysex', data=[0,32,107,127,66,2,0,0,20,127]))
+                #self.controllerPort.send(mido.Message('sysex', data=[1,2,3]))
+                #self.controllerPort.send(mido.Message.from_bytes([0xF0, 0x00, 0x20, 0x6B, 0x7F,
+                #                                 0x42, 0x02, 0x00, 000, 0x20, 0x7F, 0xF7]))
+                #F0 00 20 6B 7F 42 02 00 50 0B nn F7 
+                #self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0xF7])) 
+                #self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0x7F])) 
+
+                #self.controllerPort.send(mido.Message('note_on', note=0, velocity=56, time=6.2))
 
 
     def onMessage(self, name, message):
