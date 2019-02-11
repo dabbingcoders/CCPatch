@@ -95,6 +95,9 @@ class CCPatch:
             return
         print("Saved patch file "+filename+" to file...")
 
+    def cmdBeatstep(getset,param,controller,value):
+        return self.controllerPort.send(mido.Message('sysex', data=[0xF0,0x00,0x20,0x6B,0x7F,0x42,getset,0x00,param,controller,value,0xF7]))
+
     def broadcast(self):
     
         # loop through patch values for each control on each channel
@@ -105,7 +108,12 @@ class CCPatch:
 
         for channeldata in self.values.items():
             for controldata in channeldata[1].items():
-               sysex=[0xF0,0x00,0x20,0x6B,0x7F,0x42,0x02,0x00,0x04,0x20,0x23,0xF7]
+                channel = int(channeldata[0])
+                control = int(controldata[0])
+                value = int(controldata[1])
+                setMinSyx=cmdBeatstep(0x01,0x04,this.ccMap[control],value)
+                setMaxSyx=cmdBeatstep(0x01,0x05,this.ccMap[control],value)
+
 
 # Set minimum val of encoders F0 00 20 6B 7F 42 02 00 04 20 23 F7
 #        print("Broadcasting current patch...")
