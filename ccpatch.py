@@ -13,11 +13,11 @@ import re
 #                                                                                       #
 #   CCPatch - A command line tool to create, save, and load patches of Midi CC Vals     #
 #                                                                                       #
-#   Create a patch:     Execute ccpatch.py and tweak knobs                              #     
+#   Create a patch:     Execute ccpatch.py and tweak knobs                              #
 #   Save a patch:       Send a sysex [7F,7F,06,01] message to ccpatch.py                #
 #   Load a patch:       Pass filename to ccpatch.py:                                    #
 #                           - Load values into memory                                   #
-#                           - Broadcast the values to synths etc                        # 
+#                           - Broadcast the values to synths etc                        #
 #                           - Set the values as current for the controller via sysex    #
 #                                                                                       #
 #########################################################################################
@@ -26,15 +26,14 @@ CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
 
 class CCPatch:
+    currCCMessage = None
+    lastCCMessage = None
     controllerPort = None
     instrumentPort = None
-    lastMessage = None
-    currMessage = None
     values = defaultdict(dict)
     ccMap = {}
-    for control in range(12,27):
-        ccMap[control] = control+8
-        
+    controlToEncoder = lambda self,c:c+8
+
     def cleanName(self,name):
         return name[:name.rfind(' ')]
 
@@ -43,10 +42,6 @@ class CCPatch:
         self.connectController()
         self.connectInstrument()
 
-    def getCurrentChannel(self):
-        if self.currMessage == None: return 0
-        return self.currMessage[1]
-    
     def keyExists(self,key):
         return key in self.values.keys()
 
@@ -73,20 +68,59 @@ class CCPatch:
         except Exception as e:
             print('Unable to open MIDI output: {}'.format(INSTRUMENT_DEVICE), file=sys.stderr)
 
+    def lockCCVals(self):
+        for channeldata in self.values.items():
+            for controldata in channeldata[1].items():
+                channel = int(channeldata[0])
+                control = int(controldata[0])
+                value = int(controldata[1])
+                encoder = self.controlToEncoder(control)
+
+                setMinSyx=self.cmdBeatstep(0x02,channel,encoder,value)
+                setMaxSyx=self.cmdBeatstep(0x02,channel,encoder,value)
+                print("Encoder values locked")
+
+    def getUserTweakage(self):
+        for channeldata in self.values.items():
+            for controldata in channeldata[1].items():
+                targetChannel = int(channeldata[0])
+                targetControl = int(controldata[0])
+                targetValue = int(controldata[1])
+                targetEncoder = self.controlToEncoder(targetControl)
+
+                # We have a 2d defaultdictionary in the form  values[channel][control] = value
+
+                print("Please tweak channel #:"+str(targetChannel)+"control #:"+str(targetControl))
+                curEncTweaked = 0
+                while curEncTweaked == 0:
+                    if self.currCCMessage != self.lastCCMessage:
+                        curName, curChannel, curControl, curValue = self.currCCMessage
+                        print(self.currCCMessage)
+                        if (curChannel-1==targetChannel and curControl==targetControl):
+                            print("Thank you!!")
+                            curEncTweaked = 1
+
     def load(self,filename):
         print("Loading patch file "+filename)
+        success = False
         if os.path.isfile(filename):
             try:
-                with open(filename) as json_file:  
+                with open(filename) as json_file:
                     dict = json.load(json_file)
                     self.values = defaultdict(defaultdict,dict)
+                    success = True
+                    self.lockCCVals()
+                    self.getUserTweakage()
             except:
                 print("Error loading patch file: "+filename)
         else:
             print("Patch file "+filename+" does not exist")
+        if (success):
+            self.lockCCVals()
+            self.getUserTweakage()
 
     def save(self):
-        filename = "patch-"+time.strftime("%Y%m%d%H%M")+".json" 
+        filename = "patch-"+time.strftime("%Y%m%d%H%M")+".json"
         try:
             with open(filename, 'w') as f:
                 json.dump(self.values, f)
@@ -95,11 +129,14 @@ class CCPatch:
             return
         print("Saved patch file "+filename+" to file...")
 
-    def cmdBeatstep(getset,param,controller,value):
-        return self.controllerPort.send(mido.Message('sysex', data=[0xF0,0x00,0x20,0x6B,0x7F,0x42,getset,0x00,param,controller,value,0xF7]))
+    def cmdBeatstep(self,getset,param,controller,value):
+        print("getset: "+str(getset)+", param: "+str(param)+", controller: "+str(controller)+", value: "+str(value))
+        return self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0x7F]))
+        #return self.controllerPort.send(mido.Message('sysex', data=[0xF0,0x00,0x20,0x6B,0x7F,0x42,getset,0x00,param,controller,value,0xF7]))
+        #return self.controllerPort.send(mido.Message('sysex', data=[0xF0,0x00,0x20,0x6B,0x7F,0x42,2,0x00,param,controller,value,0xF7]))
 
     def broadcast(self):
-    
+
         # loop through patch values for each control on each channel
             # set the beatstep encoder min and max to the value in the patch
             # prompt the user to tweak the encoder
@@ -111,9 +148,31 @@ class CCPatch:
                 channel = int(channeldata[0])
                 control = int(controldata[0])
                 value = int(controldata[1])
-                setMinSyx=cmdBeatstep(0x01,0x04,this.ccMap[control],value)
-                setMaxSyx=cmdBeatstep(0x01,0x05,this.ccMap[control],value)
+                encoder = self.controlToEncoder(control)
 
+                setMinSyx=self.cmdBeatstep(0x02,channel,encoder,value)
+                setMaxSyx=self.cmdBeatstep(0x02,channel,encoder,value)
+
+                # need to listen for CC messages from beatstep
+                # maybe this process should be executed in the load method
+                # yup i think it should
+
+                #while True:
+                #    for msg in self.controllerPort.iter_pending():
+                #        print(msg)
+
+                #print("\nPlease tweak encoder #: "+str(self.controlToEncoder(control)))
+
+                # We're going to need to wait and listen for CC messages
+
+#                while (self.currMessage is not None
+#                        and self.currMessage.type is not "control_change"
+#                        and self.currMessage.channel is not channel and
+#                        self.currMessage.control is not control):
+#                       x = 1
+#               print("\nThank you!")
+                #self.controllerPort.send(mido.Message('sysex', data=setMinSyx))
+                #self.controllerPort.send(mido.Message('sysex', data=setMinSyx))
 
 # Set minimum val of encoders F0 00 20 6B 7F 42 02 00 04 20 23 F7
 #        print("Broadcasting current patch...")
@@ -127,15 +186,15 @@ class CCPatch:
                 #self.controllerPort.send(mido.Message('sysex', data=[1,2,3]))
                 #self.controllerPort.send(mido.Message.from_bytes([0xF0, 0x00, 0x20, 0x6B, 0x7F,
                 #                                 0x42, 0x02, 0x00, 000, 0x20, 0x7F, 0xF7]))
-                #F0 00 20 6B 7F 42 02 00 50 0B nn F7 
-                #self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0xF7])) 
-                #self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0x7F])) 
+                #F0 00 20 6B 7F 42 02 00 50 0B nn F7
+                #self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0xF7]))
+                #self.controllerPort.send(mido.Message('sysex', data=[0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x50, 0x0B, 0x04, 0x7F]))
 
                 #self.controllerPort.send(mido.Message('note_on', note=0, velocity=56, time=6.2))
 
 
     def onMessage(self, name, message):
-        if message.type == 'control_change': 
+        if message.type == 'control_change':
             self.lastCCMessage = None
             self.currCCMessage = (name, message.channel, message.control, message.value)
             if  self.currCCMessage != self.lastCCMessage:
