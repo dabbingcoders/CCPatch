@@ -9,8 +9,11 @@ import json
 import time
 import re
 
-# idea: Store a dictionary of midi commands to listen for and callback functions
-# to execute
+# TODO: Progress bar and tracking of synced encoders
+# TODO: Configure recall and store buttons to -/+ the global midi channel
+# TODO: recall and store buttons should, if there are values for that channel,
+#       lock encoders to new values, request user input on encoders, show progress bar.  
+# TODO: As soon as all values are synced unlock all encoders
 
 #########################################################################################
 #                                                                                       #
