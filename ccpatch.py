@@ -14,6 +14,8 @@ import re
 # TODO: recall and store buttons should, if there are values for that channel,
 #       lock encoders to new values, request user input on encoders, show progress bar.  
 # TODO: As soon as all values are synced unlock all encoders
+# TODO: Light up pads to indicate which encoders are still to be synced
+# TODO: Light up pads to indicate encoder values as they are turned (e.g. 8-15: 1 pad lit, 16-23: 2 pads lit...)
 
 #########################################################################################
 #                                                                                       #
@@ -26,14 +28,17 @@ import re
 #                           - Broadcast the values to synths etc                        #
 #                           - Set the values as current for the controller via sysex    #
 #                                                                                       #
+#   Stop:     0x58      Start:  0x59      Cntrl/Seq:   0x5A       ExtSync:   0x5B       #
+#   Recall:   0x5C      Store:  0x5D      Shift:       0x5E       Chan:      0x5F       #
+#                                                                                       #
 #########################################################################################
 
 CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
 
-
 class CCPatch:
-    currCCMessage = None
+    curChan
+    curCCMessage = None
     lastCCMessage = None
     controllerPort = None
     instrumentPort = None
@@ -42,18 +47,51 @@ class CCPatch:
     controlToEncoder = lambda self,c:c+20
     encoderToPosition = lambda self,c:c-31
     sysexListeners = {}
+    ccListeners = {}
 
-    def cleanName(self,name):
-        return name[:name.rfind(' ')]
+#   MMC MODE (VV=7)
+#   Invoked by F0 00 20 6B 7F 42 02 00 01 cc 07 F7.
 
     def configure(self):
         mido.set_backend('mido.backends.rtmidi')
         self.connectController()
         self.connectInstrument()
+
         # Beatstep transport stop
         self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.save)
         # Beatstep transport play
         self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.getUserTweakage)
+
+        # Listen for CC 0x34 from recall button to decrement,
+        # set global midi channel, and then get some user tweaks to sync
+        #self.addCCListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.decrementChan)
+
+        # Listen for CC 0x35 from store button to increment,
+        # set global midi channel, and then get some user tweaks to sync
+        #self.addCCListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.incrementChan)
+
+        # Set Beatstep recall button to CC switch mode
+        hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5C, 0x08]
+        self.sendSysexToController(hexSetRecallMMC)
+
+        # Set Beatstep store button to CC switch mode
+        hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5D, 0x08]
+        self.sendSysexToController(hexSetRecallMMC)
+
+        # Set Beatstep recall button CC control # to 0x34 
+        # Setting the parameters: Send F0 00 20 6B 7F 42 02 00 and then…
+        hexSetRecallMMCx34 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5C, 0x34]
+        self.sendSysexToController(hexSetRecallMMCx34)
+
+        # Set Beatstep store button CC control # to 0x35 
+        hexSetStoreMMCx35 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5D, 0x35]
+        self.sendSysexToController(hexSetStoreMMCx35)
+
+    def sendSysexToController(self,sysex):
+        try:
+            self.controllerPort.send(mido.Message('sysex', data=sysex))
+        except Exception as e:
+            print("Error sending sysex to device")
 
     # Compares sysex commands. Returns either False, or with an array of remaining unmatched bytes from sysex2
     # In the case of an exact match, returns an empty list
@@ -69,24 +107,35 @@ class CCPatch:
                 result[i] = sysex2[i]
         return result
 
+    def compareCC(self,cc1,cc2):
+        print("Comparing "+str(cc1)+" to "+str(cc2))
+        return False
 
-    # we need to compare tuples, identify an exact match, and in the event of a partial match,
-    # get the values of the remaining bytes
+    def processCCListeners(self,message):
+        for cc in self.ccListeners:
+            values = self.compareCC(cc,message.bytes())
+            if values != False :
+                if len(values) > 0:
+                    self.ccListeners[cc](values)
+                else:
+                    self.ccListeners[cc]()
+
     def processSysexListeners(self,message):
         for sysex in self.sysexListeners:
-            print(str(sysex))
-            print("-->"+str(self.compareSysex(sysex,message.bytes())))
-            print(str(message.bytes()))
+            values = self.compareSysex(sysex,message.bytes())
+            if values != False :
+                if len(values) > 0:
+                    self.sysexListeners[sysex](values)
+                else:
+                    self.sysexListeners[sysex]()
 
-            #if set(sysex) == message.bytes():
-            #if self.compareSysex(sysex,message.bytes())
-            #    print("Exact sysex command identified. Executing "+str(self.sysexListeners[sysex]))
-            #elif set(sysex).issubset(message.bytes()):
-            #    print("Sysex command identified. Executing with args: "+str(self.sysexListeners[sysex]))
-                
     def addSysexListener(self,message,function):
         print("resistering "+str(message))
         self.sysexListeners[message] = function
+
+    def addCCListener(self,message,function):
+        print("resistering "+str(message))
+        self.ccListeners[message] = function
 
     def keyExists(self,key):
         return key in self.values.keys()
@@ -95,6 +144,9 @@ class CCPatch:
         for portName in mido.get_input_names()+mido.get_output_names():
             if re.search(pattern,portName):
                 return portName
+
+    def cleanName(self,name):
+        return name[:name.rfind(' ')]
 
     def connectController(self):
         print("Attempting to connect to " + CONTROLLER_DEVICE + "...")
@@ -226,11 +278,12 @@ class CCPatch:
 
     def onMessage(self, name, message):
         if message.type == 'control_change':
+            self.processCCListeners(message)
             self.lastCCMessage = None
-            self.currCCMessage = (name, message.channel, message.control, message.value)
-            if  self.currCCMessage != self.lastCCMessage:
+            self.curCCMessage = (name, message.channel, message.control, message.value)
+            if  self.curCCMessage != self.lastCCMessage:
                 self.values[message.channel-1][message.control] = message.value
-                self.lastCCMessage = self.currCCMessage
+                self.lastCCMessage = self.curCCMessage
         # listen for save and broadcast commands from beatstep stop and play buttons
 
         elif message.type == 'sysex':         
