@@ -37,7 +37,7 @@ CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
 
 class CCPatch:
-    curChan
+    curChan = 0
     curCCMessage = None
     lastCCMessage = None
     controllerPort = None
