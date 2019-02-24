@@ -9,6 +9,10 @@ import json
 import time
 import re
 
+# TODO: Add additional editable property to values defaultdict with default value of False
+# TODO: On channel change, set all values to editable and freeze all encoders
+# TODO: Set value in channel to editable, and indicate LED, once relevant encoder has been tweaked
+# TODO: Once all encoders corresponding to stored values have been tweaked, unfreeze all encoders and maybe flash all pads to show ready
 # TODO: Progress bar and tracking of synced encoders
 # TODO: recall and store buttons should, if there are values for that channel,
 #       lock encoders to new values, request user input on encoders, show progress bar.  
@@ -53,16 +57,15 @@ class CCPatch:
         self.connectController()
         self.connectInstrument()
 
-        # f0 00 20 6b 7f 42 02 00 40 06 08 f7 
         # Listen for current global chan which will be requested next
         self.addSysexListener((0xF0,0x00, 0x20, 0x6b, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, 0xF7),self.setCurChan)
         hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, 0x40, 0x06]
         self.sendSysexToController(hexGetGlobalChan)
 
         # Beatstep transport stop
-        #self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.save)
+        self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.save)
         # Beatstep transport play
-        #self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.getUserTweakage)
+        self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.getUserTweakage)
 
         # Listen for CC 0x34 from recall button to decrement,
         # set global midi channel, and then get some user tweaks to sync
@@ -81,7 +84,6 @@ class CCPatch:
         self.sendSysexToController(hexSetRecallMMC)
 
         # Set Beatstep recall button CC control # to 0x34 
-        # Setting the parameters: Send F0 00 20 6B 7F 42 02 00 and then…
         hexSetRecallMMCx34 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5C, 0x34]
         self.sendSysexToController(hexSetRecallMMCx34)
 
