@@ -37,7 +37,7 @@ CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
 
 class CCPatch:
-    curChan = 0
+    curChan = 0x00 
     curCCMessage = None
     lastCCMessage = None
     controllerPort = None
@@ -64,11 +64,11 @@ class CCPatch:
 
         # Listen for CC 0x34 from recall button to decrement,
         # set global midi channel, and then get some user tweaks to sync
-        #self.addCCListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.decrementChan)
+        self.addCCListener((0x34), self.decrementChan)
 
         # Listen for CC 0x35 from store button to increment,
         # set global midi channel, and then get some user tweaks to sync
-        #self.addCCListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.incrementChan)
+        self.addCCListener((0x35), self.incrementChan)
 
         # Set Beatstep recall button to CC switch mode
         hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5C, 0x08]
@@ -87,12 +87,38 @@ class CCPatch:
         hexSetStoreMMCx35 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5D, 0x35]
         self.sendSysexToController(hexSetStoreMMCx35)
 
+        hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
+        self.sendSysexToController(hexGetGlobalChan)
+        
     def sendSysexToController(self,sysex):
         try:
             self.controllerPort.send(mido.Message('sysex', data=sysex))
         except Exception as e:
             print("Error sending sysex to device")
 
+    def decrementChan(self,value):
+        if self.curChan > 0:
+            self.curChan -= 1
+        else:
+            self.curChan = 15 
+        hexSetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
+        self.sendSysexToController(hexSetGlobalChan)
+        hexSetChanIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, 0x70+self.curChan, 0x11]
+        self.sendSysexToController(hexSetChanIndicator)
+        print("Decrementing global channel " + str(self.curChan+1))
+
+    def incrementChan(self,value):
+        if self.curChan < 15:
+            self.curChan += 1
+        else:
+            self.curChan = 0
+        hexSetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
+        self.sendSysexToController(hexSetGlobalChan)
+        hexSetChanIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, 0x70+self.curChan, 0x11]
+        self.sendSysexToController(hexSetChanIndicator)
+        print("Incrementing global channel " + str(self.curChan+1))
+
+    
     # Compares sysex commands. Returns either False, or with an array of remaining unmatched bytes from sysex2
     # In the case of an exact match, returns an empty list
     def compareSysex(self,sysex1,sysex2):
@@ -113,12 +139,8 @@ class CCPatch:
 
     def processCCListeners(self,message):
         for cc in self.ccListeners:
-            values = self.compareCC(cc,message.bytes())
-            if values != False :
-                if len(values) > 0:
-                    self.ccListeners[cc](values)
-                else:
-                    self.ccListeners[cc]()
+            if cc == message.control: 
+                self.ccListeners[cc](message.value)
 
     def processSysexListeners(self,message):
         for sysex in self.sysexListeners:
@@ -133,9 +155,9 @@ class CCPatch:
         print("resistering "+str(message))
         self.sysexListeners[message] = function
 
-    def addCCListener(self,message,function):
-        print("resistering "+str(message))
-        self.ccListeners[message] = function
+    def addCCListener(self,control,function):
+        print("resistering "+str(control))
+        self.ccListeners[control] = function
 
     def keyExists(self,key):
         return key in self.values.keys()
