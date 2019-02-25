@@ -12,7 +12,7 @@ import re
 # TODO: Add additional editable property to values defaultdict with default value of False
 # TODO: On channel change, set all values to editable and freeze all encoders
 # TODO: Set value in channel to editable, and indicate LED, once relevant encoder has been tweaked
-# TODO: Once all encoders corresponding to stored values have been tweaked, unfreeze all encoders and maybe flash all pads to show ready
+# TODO: Once all encoders corresponding to stored values have been tweaked
 # TODO: Progress bar and tracking of synced encoders
 # TODO: recall and store buttons should, if there are values for that channel,
 #       lock encoders to new values, request user input on encoders, show progress bar.  
@@ -105,14 +105,14 @@ class CCPatch:
         self.curChan = value[0]
 
     def decrementChan(self,value):
-        if self.curChan > 0:
-            self.curChan -= 1
-        else:
-            self.curChan = 15 
+        if self.curChan > 0: self.curChan -= 1 
+        else: self.curChan = 15 
+
         hexSetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
         self.sendSysexToController(hexSetGlobalChan)
         hexSetChanIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, 0x70+self.curChan, 0x11]
         self.sendSysexToController(hexSetChanIndicator)
+
         print("Decrementing global channel " + str(self.curChan+1))
 
     def incrementChan(self,value):
@@ -251,24 +251,16 @@ class CCPatch:
                 print("Encoder values locked")
 
     def getUserTweakage(self):
-        channel = input("Which channel?:")
-#        print("Please tweak the following controllers")
-#        for channeldata in self.values.items():
-#            for controldata in channeldata[1].items():
-#                targetChannel = int(channeldata[0])
-#                targetControl = int(controldata[0])
-#                targetValue = int(controldata[1])
-#                targetEncoder = self.controlToEncoder(targetControl)
-#                targetEncoderPosition = self.encoderToPosition(targetEncoder)
-
-        print(str(self.getPending()))
-        while (self.getPending()):
-            if self.currCCMessage != self.lastCCMessage:
-                if (self.mapVal(self.currCCMessage[1],self.currCCMessage[2],self.currCCMessage[3])):
-                    self.unpendCC(self.currCCMessage[1],self.currCCMessage[2])
-                    print("Channel: "+currCCMessage[1]+" Control: "+currCCMessage[2]+" Value: "+currCCMessage[3])
-                    print(str(self.getPending()))
-
+        print(str(self.values))
+        print("Please tweak the following controllers: ", end="", flush=True)
+        for channeldata in self.values.items():
+            if channeldata[0] == self.curChan:
+                for controldata in channeldata[1].items():
+                    targetControl = int(controldata[0])
+                    targetValue = int(controldata[1])
+                    targetEncoder = self.controlToEncoder(targetControl)
+                    targetEncoderPosition = self.encoderToPosition(targetEncoder)
+                    print(targetEncoderPosition, end="", flush=True)
 
     def load(self,filename):
         print("Loading patch file "+filename)
@@ -301,8 +293,8 @@ class CCPatch:
             self.processCCListeners(message)
             self.lastCCMessage = None
             self.curCCMessage = (name, message.channel, message.control, message.value)
-            if  self.curCCMessage != self.lastCCMessage:
-                self.values[message.channel-1][message.control] = message.value
+            if  self.curCCMessage != self.lastCCMessage and message.channel == self.curChan:
+                self.values[self.curChan][message.control] = message.value
                 self.lastCCMessage = self.curCCMessage
         elif message.type == 'sysex':         
             self.processSysexListeners(message)
