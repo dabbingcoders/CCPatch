@@ -38,6 +38,8 @@ import re
 
 CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
+BLUE     =   0x10
+MAGENTA  =   0x11
 
 class CCPatch:
     curChan = 0x00 
@@ -46,9 +48,10 @@ class CCPatch:
     controllerPort = None
     instrumentPort = None
     values = defaultdict(dict)
-    pending = None
+    pending = set()
     controlToEncoder = lambda self,c:c+20
     encoderToPosition = lambda self,c:c-31
+    encoderToPad = lambda self,c:c+0x50
     sysexListeners = {}
     ccListeners = {}
 
@@ -65,7 +68,7 @@ class CCPatch:
         # Beatstep transport stop
         self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.save)
         # Beatstep transport play
-        self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.getUserTweakage)
+        #self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.getUserTweakage)
 
         # Listen for CC 0x34 from recall button to decrement,
         # set global midi channel, and then get some user tweaks to sync
@@ -114,6 +117,7 @@ class CCPatch:
         self.sendSysexToController(hexSetChanIndicator)
 
         print("Decrementing global channel " + str(self.curChan+1))
+        self.queueEncoders()
 
     def incrementChan(self,value):
         if self.curChan < 15:
@@ -125,6 +129,7 @@ class CCPatch:
         hexSetChanIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, 0x70+self.curChan, 0x11]
         self.sendSysexToController(hexSetChanIndicator)
         print("Incrementing global channel " + str(self.curChan+1))
+        self.queueEncoders()
 
     
     # Compares sysex commands. Returns either False, or with an array of remaining unmatched bytes from sysex2
@@ -250,17 +255,29 @@ class CCPatch:
                 self.freezeEncoder(encoder,value)
                 print("Encoder values locked")
 
-    def getUserTweakage(self):
-        print(str(self.values))
-        print("Please tweak the following controllers: ", end="", flush=True)
+    def queueEncoders(self):
+        time.sleep(0.5)
         for channeldata in self.values.items():
             if channeldata[0] == self.curChan:
+                print("cunt")
                 for controldata in channeldata[1].items():
                     targetControl = int(controldata[0])
                     targetValue = int(controldata[1])
                     targetEncoder = self.controlToEncoder(targetControl)
                     targetEncoderPosition = self.encoderToPosition(targetEncoder)
-                    print(targetEncoderPosition, end="", flush=True)
+                    targetIndicatorPad = self.encoderToPad(targetEncoder)
+                    print("target indicator pad "+str(targetIndicatorPad))
+                    self.pending.add(targetEncoder)
+                    self.padLEDOn(targetIndicatorPad,BLUE)
+
+        #while len(self.pending) > 0:
+        #    print("waiting...")
+            
+    def padLEDOn(self, targetPad, color):
+        hexSetEncoderIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, targetPad, color]
+        self.sendSysexToController(hexSetEncoderIndicator)
+        self.sendSysexToController(hexSetEncoderIndicator)
+
 
     def load(self,filename):
         print("Loading patch file "+filename)
