@@ -54,6 +54,7 @@ class CCPatch:
     encoderToPad = lambda self,c:c+0x50
     sysexListeners = {}
     ccListeners = {}
+    reservedCCs = {0x34,0x35}
 
     def configure(self):
         mido.set_backend('mido.backends.rtmidi')
@@ -98,10 +99,11 @@ class CCPatch:
         self.sendSysexToController(hexGetGlobalChan)
         
     def sendSysexToController(self,sysex):
-        try:
-            self.controllerPort.send(mido.Message('sysex', data=sysex))
-        except Exception as e:
-            print("Error sending sysex to device")
+        print(str(sysex))
+        #try:
+        self.controllerPort.send(mido.Message('sysex', data=sysex))
+        #except Exception as e:
+        #    print("Error sending sysex to device")
 
     def setCurChan(self,value) :
         print("Setting channel to: "+str(value))
@@ -109,7 +111,7 @@ class CCPatch:
 
     def decrementChan(self,value):
         if self.curChan > 0: self.curChan -= 1 
-        else: self.curChan = 15 
+        #else: self.curChan = 15 
 
         hexSetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
         self.sendSysexToController(hexSetGlobalChan)
@@ -120,10 +122,9 @@ class CCPatch:
         self.queueEncoders()
 
     def incrementChan(self,value):
-        if self.curChan < 15:
-            self.curChan += 1
-        else:
-            self.curChan = 0
+        if self.curChan < 15: self.curChan += 1
+        #else: self.curChan = 0
+
         hexSetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
         self.sendSysexToController(hexSetGlobalChan)
         hexSetChanIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, 0x70+self.curChan, 0x11]
@@ -253,19 +254,22 @@ class CCPatch:
                 value = int(controldata[1])
                 encoder = self.controlToEncoder(control)
                 self.freezeEncoder(encoder,value)
-                print("Encoder values locked")
+                print("Encoder values unlocked")
 
     def queueEncoders(self):
         time.sleep(0.5)
         for channeldata in self.values.items():
+            print(channeldata)
             if channeldata[0] == self.curChan:
-                print("cunt")
                 for controldata in channeldata[1].items():
                     targetControl = int(controldata[0])
                     targetValue = int(controldata[1])
                     targetEncoder = self.controlToEncoder(targetControl)
                     targetEncoderPosition = self.encoderToPosition(targetEncoder)
                     targetIndicatorPad = self.encoderToPad(targetEncoder)
+
+                    print("targetControl:"+str(targetControl)+"\ntargetEncoder: "+str(targetEncoder)+"\ntargetEncoderPosition: "+str(targetEncoderPosition)+"\ntargetIndicatorPad: "+str(targetIndicatorPad))
+
                     print("target indicator pad "+str(targetIndicatorPad))
                     self.pending.add(targetEncoder)
                     self.padLEDOn(targetIndicatorPad,BLUE)
@@ -310,7 +314,8 @@ class CCPatch:
             self.processCCListeners(message)
             self.lastCCMessage = None
             self.curCCMessage = (name, message.channel, message.control, message.value)
-            if  self.curCCMessage != self.lastCCMessage and message.channel == self.curChan:
+            if  self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
+                print("setting value to: "+str(message.value))
                 self.values[self.curChan][message.control] = message.value
                 self.lastCCMessage = self.curCCMessage
         elif message.type == 'sysex':         
