@@ -9,16 +9,22 @@ import json
 import time
 import re
 
-# TODO: Add additional editable property to values defaultdict with default value of False
-# TODO: On channel change, set all values to editable and freeze all encoders
-# TODO: Set value in channel to editable, and indicate LED, once relevant encoder has been tweaked
-# TODO: Once all encoders corresponding to stored values have been tweaked
-# TODO: Progress bar and tracking of synced encoders
-# TODO: recall and store buttons should, if there are values for that channel,
-#       lock encoders to new values, request user input on encoders, show progress bar.  
-# TODO: As soon as all values are synced unlock all encoders
+# TODO: turn off LED, once relevant encoder has been tweaked
+# TODO: In queueEncoders() freeze ALL encoders until out of tweak mode to prevent unwanted vals being stored
+# TODO: Un-light pad LEDs once corresponding encoder has been set to lock value
+# TODO: Create unfreezeAllEncoders() method
+# TODO: Once all encoders corresponding to stored values have been tweaked, unfreeze all encoders
 # TODO: Light up pads to indicate which encoders are still to be synced
-# TODO: Light up pads to indicate encoder values as they are turned (e.g. 8-15: 1 pad lit, 16-23: 2 pads lit...)
+# TODO: (nice to have) Light up pads to indicate encoder values as they are turned (e.g. 8-15: 1 pad lit, 16-23: 2 pads lit...)
+
+# 29/03:
+
+# recap:
+
+# the encoders still need to be frozen for channels with pending values to be sync-ed
+# We can't easily add an 'editable' property to the defaultdict of cc values
+# so instead perhaps we need a list of pending encoders to be tweaked
+
 
 #########################################################################################
 #                                                                                       #
@@ -97,6 +103,8 @@ class CCPatch:
 
         hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, 0x40, 0x06]
         self.sendSysexToController(hexGetGlobalChan)
+
+        self.unfreezeAllEncoders()
         
     def sendSysexToController(self,sysex):
         print(str(sysex))
@@ -120,6 +128,7 @@ class CCPatch:
 
         print("Decrementing global channel " + str(self.curChan+1))
         self.queueEncoders()
+        self.freezeEncoders()
 
     def incrementChan(self,value):
         if self.curChan < 15: self.curChan += 1
@@ -131,6 +140,7 @@ class CCPatch:
         self.sendSysexToController(hexSetChanIndicator)
         print("Incrementing global channel " + str(self.curChan+1))
         self.queueEncoders()
+        self.freezeEncoders()
 
     
     # Compares sysex commands. Returns either False, or with an array of remaining unmatched bytes from sysex2
@@ -179,11 +189,11 @@ class CCPatch:
                     self.sysexListeners[sysex]()
 
     def addSysexListener(self,message,function):
-        print("resistering "+str(message))
+        print("registering "+str(message))
         self.sysexListeners[message] = function
 
     def addCCListener(self,control,function):
-        print("resistering "+str(control))
+        print("registering "+str(control))
         self.ccListeners[control] = function
 
     def keyExists(self,key):
@@ -236,15 +246,17 @@ class CCPatch:
             print("Error sending sysex to device")
 
     def freezeEncoders(self):
+        print(self.values)
         for channeldata in self.values.items():
-            for controldata in channeldata[1].items():
-                channel = int(channeldata[0])
-                control = int(controldata[0])
-                value = int(controldata[1])
-                encoder = self.controlToEncoder(control)
-                self.freezeEncoder(encoder,value)
-                print("Encoder values locked")
-        self.getUserTweakage()
+            if int(channeldata[0]) == self.curChan:
+                print("freezing encoders for channel: "+str(channeldata[0]))
+                for controldata in channeldata[1].items():
+                    channel = int(channeldata[0])
+                    control = int(controldata[0])
+                    value = int(controldata[1])
+                    encoder = self.controlToEncoder(control)
+                    self.freezeEncoder(encoder,value)
+                    print("Encoder values locked for channel: "+str(channel))
 
     def unfreezeEncoders(self):
         for channeldata in self.values.items():
@@ -256,10 +268,15 @@ class CCPatch:
                 self.freezeEncoder(encoder,value)
                 print("Encoder values unlocked")
 
+    def unfreezeAllEncoders(self):
+        print("Unfreezing all encoders")
+
     def queueEncoders(self):
+        # sleep 1 sec, or else indicator pads won't stay lit
         time.sleep(0.5)
         for channeldata in self.values.items():
             print(channeldata)
+            # get the values for current (probably new) channel
             if channeldata[0] == self.curChan:
                 for controldata in channeldata[1].items():
                     targetControl = int(controldata[0])
@@ -287,17 +304,18 @@ class CCPatch:
         print("Loading patch file "+filename)
         success = False
         if os.path.isfile(filename):
-            try:
-                with open(filename) as json_file:
-                    dict = json.load(json_file)
-                    self.values = defaultdict(defaultdict,dict)
-                    success = True
-            except:
-                print("Error loading patch file: "+filename)
+            #try:
+            with open(filename) as json_file:
+                dict = json.load(json_file)
+                self.values = defaultdict(defaultdict,dict)
+                success = True
+            #except:
+            #    print("Error loading patch file: "+filename)
         else:
             print("Patch file "+filename+" does not exist")
         if (success):
             self.freezeEncoders()
+            self.queueEncoders()
 
     def save(self):
         filename = "patch-"+time.strftime("%Y%m%d%H%M")+".json"
@@ -314,6 +332,7 @@ class CCPatch:
             self.processCCListeners(message)
             self.lastCCMessage = None
             self.curCCMessage = (name, message.channel, message.control, message.value)
+            # only listen to new, unreserved CCs on the current channel
             if  self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
                 print("setting value to: "+str(message.value))
                 self.values[self.curChan][message.control] = message.value
@@ -322,6 +341,7 @@ class CCPatch:
             self.processSysexListeners(message)
         else:
             print(message)
+
 
 patch = CCPatch()
 patch.configure()
