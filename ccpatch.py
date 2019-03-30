@@ -58,9 +58,10 @@ class CCPatch:
     controlToEncoder = lambda self,c:c+20
     encoderToPosition = lambda self,c:c-31
     encoderToPad = lambda self,c:c+0x50
+    encoders = range(0x20, 0x2F)
     sysexListeners = {}
     ccListeners = {}
-    reservedCCs = {0x34,0x35}
+    reservedCCs = {0x34,0x35,0x36}
 
     def configure(self):
         mido.set_backend('mido.backends.rtmidi')
@@ -85,6 +86,9 @@ class CCPatch:
         # set global midi channel, and then get some user tweaks to sync
         self.addCCListener((0x35), self.incrementChan)
 
+        # Listen for CC 0x36 from shift button to unfreeze all controllers 
+        self.addCCListener((0x36), self.toggleFreezeEncoders)
+
         # Set Beatstep recall button to CC switch mode
         hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5C, 0x08]
         self.sendSysexToController(hexSetRecallMMC)
@@ -93,6 +97,10 @@ class CCPatch:
         hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5D, 0x08]
         self.sendSysexToController(hexSetRecallMMC)
 
+        # Set Beatstep shift button to CC switch mode
+        hexSetShiftMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5E, 0x08]
+        self.sendSysexToController(hexSetShiftMMC)
+
         # Set Beatstep recall button CC control # to 0x34 
         hexSetRecallMMCx34 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5C, 0x34]
         self.sendSysexToController(hexSetRecallMMCx34)
@@ -100,6 +108,10 @@ class CCPatch:
         # Set Beatstep store button CC control # to 0x35 
         hexSetStoreMMCx35 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5D, 0x35]
         self.sendSysexToController(hexSetStoreMMCx35)
+
+        # Set Beatstep shift button CC control # to 0x36 
+        hexSetStoreMMCx36 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5E, 0x36]
+        self.sendSysexToController(hexSetStoreMMCx36)
 
         hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, 0x40, 0x06]
         self.sendSysexToController(hexGetGlobalChan)
@@ -256,7 +268,7 @@ class CCPatch:
                     value = int(controldata[1])
                     encoder = self.controlToEncoder(control)
                     self.freezeEncoder(encoder,value)
-                    print("Encoder values locked for channel: "+str(channel))
+                    print("Encoder values frozen for channel: "+str(channel))
 
     def unfreezeEncoders(self):
         for channeldata in self.values.items():
@@ -268,8 +280,19 @@ class CCPatch:
                 self.freezeEncoder(encoder,value)
                 print("Encoder values unlocked")
 
+    def toggleFreezeEncoders(self,val):
+        if val == 0:
+            self.freezeAllEncoders()
+        else:
+            self.unfreezeAllEncoders()
+
+    def freezeAllEncoders(self):
+        for encoder in self.encoders:
+            self.freezeEncoder(encoder)
+
     def unfreezeAllEncoders(self):
-        print("Unfreezing all encoders")
+        for encoder in self.encoders:
+            self.unfreezeEncoder(encoder)
 
     def queueEncoders(self):
         # sleep 1 sec, or else indicator pads won't stay lit
@@ -299,6 +322,11 @@ class CCPatch:
         self.sendSysexToController(hexSetEncoderIndicator)
         self.sendSysexToController(hexSetEncoderIndicator)
 
+
+    def padLEDOff(self, targetPad):
+        hexSetEncoderIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, targetPad, 0] 
+        self.sendSysexToController(hexSetEncoderIndicator)
+        self.sendSysexToController(hexSetEncoderIndicator)
 
     def load(self,filename):
         print("Loading patch file "+filename)
@@ -334,6 +362,7 @@ class CCPatch:
             self.curCCMessage = (name, message.channel, message.control, message.value)
             # only listen to new, unreserved CCs on the current channel
             if  self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
+                self.checkPendingEncoders(message.control,message.value)
                 print("setting value to: "+str(message.value))
                 self.values[self.curChan][message.control] = message.value
                 self.lastCCMessage = self.curCCMessage
@@ -341,6 +370,20 @@ class CCPatch:
             self.processSysexListeners(message)
         else:
             print(message)
+
+
+    def checkPendingEncoders(self, control, value):
+        targetEncoder = self.controlToEncoder(control) 
+        if targetEncoder in self.pending:
+            if value == self.getCCVal(self.curChan, control):
+                targetIndicatorPad = self.encoderToPad(targetEncoder)
+                self.padLEDOff(targetIndicatorPad)
+                #self.unfreezeEncoder(targetEncoder)
+                #let's make the user manually unfreeze the encoders when he is ready
+
+    def getCCVal(self, channel, control):
+        return self.values[self.curChan][control]
+
 
 
 patch = CCPatch()
