@@ -62,6 +62,7 @@ class CCPatch:
     encoderToPosition = lambda self,c:c-31
     encoderToPad = lambda self,c:c+0x50
     encoders = range(0x20, 0x2F)
+    encodersFrozen = False
     defaultEncoderVal = 0x40
     sysexListeners = {}
     ccListeners = {}
@@ -273,6 +274,7 @@ class CCPatch:
                     encoder = self.controlToEncoder(control)
                     self.freezeEncoder(encoder,value)
                     print("Encoder values frozen for channel: "+str(channel))
+        self.encodersFrozen = True
 
     def unfreezeEncoders(self):
         for channeldata in self.values.items():
@@ -283,12 +285,13 @@ class CCPatch:
                 encoder = self.controlToEncoder(control)
                 self.freezeEncoder(encoder,value)
                 print("Encoder values unlocked")
+        self.encodersFrozen = False
 
     def toggleFreezeEncoders(self,val):
-        if val == 0:
-            self.freezeAllEncoders()
-        else:
+        if self.encodersFrozen:
             self.unfreezeAllEncoders()
+        else:
+            self.freezeAllEncoders()
 
     # freeze all encoders, regardless of whether the corresponding control has a stored value
     def freezeAllEncoders(self):
@@ -296,10 +299,12 @@ class CCPatch:
             control = self.encoderToControl(encoder)
             value = self.getCCVal(self.curChan, control)
             self.freezeEncoder(encoder,value)
+        self.encodersFrozen = True
 
     def unfreezeAllEncoders(self):
         for encoder in self.encoders:
             self.unfreezeEncoder(encoder)
+        self.encodersFrozen = False
 
     def queueEncoders(self):
         # sleep 1 sec, or else indicator pads won't stay lit
@@ -369,6 +374,7 @@ class CCPatch:
             self.curCCMessage = (name, message.channel, message.control, message.value)
             # only listen to new, unreserved CCs on the current channel
             if self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
+                print(message)
                 if len(self.pending) == 0:
                     print("setting value to: "+str(message.value))
                     self.values[self.curChan][message.control] = message.value
@@ -384,12 +390,12 @@ class CCPatch:
     # and if so, remove it from the pending list and turn off the corresponding pad LED.
     def removeFromPendingIfCalibrated(self, encoder, value):
         if encoder in self.pending:
-            if value == self.getCCVal(self.curChan, control):
+            if value == self.getCCVal(self.curChan, self.encoderToControl(encoder)):
                 self.pending.remove(encoder)
                 indicatorPad = self.encoderToPad(encoder)
                 self.padLEDOff(indicatorPad)
-                return true
-        return false
+                return True
+        return False
                 
     def getCCVal(self, channel, control):
         if control in self.values[channel]:
