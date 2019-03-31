@@ -16,6 +16,8 @@ import re
 # TODO: Once all encoders corresponding to stored values have been tweaked, unfreeze all encoders
 # TODO: Light up pads to indicate which encoders are still to be synced
 # TODO: (nice to have) Light up pads to indicate encoder values as they are turned (e.g. 8-15: 1 pad lit, 16-23: 2 pads lit...)
+# TODO: Leave LEDs corresponding to active encoders lit in blue while in 'play mode' (e.g. nothing frozen - something in pending) 
+# TODO: When in calibration mode light up all active (and frozen) encoders in magenta
 
 # 29/03:
 
@@ -56,9 +58,11 @@ class CCPatch:
     values = defaultdict(dict)
     pending = set()
     controlToEncoder = lambda self,c:c+20
+    encoderToControl = lambda self,c:c-20
     encoderToPosition = lambda self,c:c-31
     encoderToPad = lambda self,c:c+0x50
     encoders = range(0x20, 0x2F)
+    defaultEncoderVal = 0x40
     sysexListeners = {}
     ccListeners = {}
     reservedCCs = {0x34,0x35,0x36}
@@ -286,9 +290,12 @@ class CCPatch:
         else:
             self.unfreezeAllEncoders()
 
+    # freeze all encoders, regardless of whether the corresponding control has a stored value
     def freezeAllEncoders(self):
         for encoder in self.encoders:
-            self.freezeEncoder(encoder)
+            control = self.encoderToControl(encoder)
+            value = self.getCCVal(self.curChan, control)
+            self.freezeEncoder(encoder,value)
 
     def unfreezeAllEncoders(self):
         for encoder in self.encoders:
@@ -361,29 +368,34 @@ class CCPatch:
             self.lastCCMessage = None
             self.curCCMessage = (name, message.channel, message.control, message.value)
             # only listen to new, unreserved CCs on the current channel
-            if  self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
-                self.checkPendingEncoders(message.control,message.value)
-                print("setting value to: "+str(message.value))
-                self.values[self.curChan][message.control] = message.value
-                self.lastCCMessage = self.curCCMessage
+            if self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
+                if len(self.pending) == 0:
+                    print("setting value to: "+str(message.value))
+                    self.values[self.curChan][message.control] = message.value
+                    self.lastCCMessage = self.curCCMessage
+                else:
+                    self.removeFromPendingIfCalibrated(self.controlToEncoder(message.control), message.value)
         elif message.type == 'sysex':         
             self.processSysexListeners(message)
         else:
             print(message)
 
-
-    def checkPendingEncoders(self, control, value):
-        targetEncoder = self.controlToEncoder(control) 
-        if targetEncoder in self.pending:
+    # Check to see if control is pending calibration, if it's value has been correctly calibrated
+    # and if so, remove it from the pending list and turn off the corresponding pad LED.
+    def removeFromPendingIfCalibrated(self, encoder, value):
+        if encoder in self.pending:
             if value == self.getCCVal(self.curChan, control):
-                targetIndicatorPad = self.encoderToPad(targetEncoder)
-                self.padLEDOff(targetIndicatorPad)
-                #self.unfreezeEncoder(targetEncoder)
-                #let's make the user manually unfreeze the encoders when he is ready
-
+                self.pending.remove(encoder)
+                indicatorPad = self.encoderToPad(encoder)
+                self.padLEDOff(indicatorPad)
+                return true
+        return false
+                
     def getCCVal(self, channel, control):
-        return self.values[self.curChan][control]
-
+        if control in self.values[channel]:
+            return self.values[self.curChan][control]
+        else:
+            return self.defaultEncoderVal
 
 
 patch = CCPatch()
