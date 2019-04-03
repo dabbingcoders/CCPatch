@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from collections import defaultdict
+from threading import Thread
 import collections
 import os
 import sys
@@ -18,6 +19,7 @@ import re
 # TODO: (nice to have) Light up pads to indicate encoder values as they are turned (e.g. 8-15: 1 pad lit, 16-23: 2 pads lit...)
 # TODO: Leave LEDs corresponding to active encoders lit in blue while in 'play mode' (e.g. nothing frozen - something in pending) 
 # TODO: When in calibration mode light up all active (and frozen) encoders in magenta
+# TODO: What do we do when the encoder happens to already have the right value?
 
 # 29/03:
 
@@ -46,8 +48,10 @@ import re
 
 CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
+RED      =   0x01
 BLUE     =   0x10
 MAGENTA  =   0x11
+OFF      =   0x00
 
 class CCPatch:
     curChan = 0x00 
@@ -135,6 +139,7 @@ class CCPatch:
         self.curChan = value[0]
 
     def decrementChan(self,value):
+        self.emptyPending()
         if self.curChan > 0: self.curChan -= 1 
         #else: self.curChan = 15 
 
@@ -145,9 +150,10 @@ class CCPatch:
 
         print("Decrementing global channel " + str(self.curChan+1))
         self.queueEncoders()
-        self.freezeEncoders()
+        self.freezeAllEncoders()
 
     def incrementChan(self,value):
+        self.emptyPending()
         if self.curChan < 15: self.curChan += 1
         #else: self.curChan = 0
 
@@ -157,7 +163,7 @@ class CCPatch:
         self.sendSysexToController(hexSetChanIndicator)
         print("Incrementing global channel " + str(self.curChan+1))
         self.queueEncoders()
-        self.freezeEncoders()
+        self.freezeAllEncoders()
 
     
     # Compares sysex commands. Returns either False, or with an array of remaining unmatched bytes from sysex2
@@ -244,8 +250,17 @@ class CCPatch:
 
     def freezeEncoder(self,encoder,value):
         print("Freezing encoder: "+str(encoder)+", value: "+str(value))
-        hexSetMin = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x04, encoder, value]
-        hexSetMax = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x05, encoder, value]
+        minVal = value
+        maxVal = value
+        if value < 127:
+            minVal = value
+            maxVal = value+1
+        else:
+           minVal = value
+           maxVal = value+1
+
+        hexSetMin = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x04, encoder, minVal]
+        hexSetMax = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x05, encoder, maxVal]
         try:
             self.controllerPort.send(mido.Message('sysex', data=hexSetMin))
             self.controllerPort.send(mido.Message('sysex', data=hexSetMax))
@@ -298,6 +313,7 @@ class CCPatch:
         for encoder in self.encoders:
             control = self.encoderToControl(encoder)
             value = self.getCCVal(self.curChan, control)
+            pad = self.encoderToPad(encoder)
             self.freezeEncoder(encoder,value)
         self.encodersFrozen = True
 
@@ -305,10 +321,13 @@ class CCPatch:
         for encoder in self.encoders:
             self.unfreezeEncoder(encoder)
         self.encodersFrozen = False
+        self.refreshLEDs()
+        self.emptyPending()
+
+    def emptyPending(self):
+        self.pending = set()
 
     def queueEncoders(self):
-        # sleep 1 sec, or else indicator pads won't stay lit
-        time.sleep(0.5)
         for channeldata in self.values.items():
             print(channeldata)
             # get the values for current (probably new) channel
@@ -324,21 +343,15 @@ class CCPatch:
 
                     print("target indicator pad "+str(targetIndicatorPad))
                     self.pending.add(targetEncoder)
-                    self.padLEDOn(targetIndicatorPad,BLUE)
+#                    self.padLED(targetIndicatorPad,MAGENTA)
 
         #while len(self.pending) > 0:
         #    print("waiting...")
             
-    def padLEDOn(self, targetPad, color):
+    def padLED(self, targetPad, color):
         hexSetEncoderIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, targetPad, color]
         self.sendSysexToController(hexSetEncoderIndicator)
-        self.sendSysexToController(hexSetEncoderIndicator)
-
-
-    def padLEDOff(self, targetPad):
-        hexSetEncoderIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, targetPad, 0] 
-        self.sendSysexToController(hexSetEncoderIndicator)
-        self.sendSysexToController(hexSetEncoderIndicator)
+        #self.sendSysexToController(hexSetEncoderIndicator)
 
     def load(self,filename):
         print("Loading patch file "+filename)
@@ -354,8 +367,8 @@ class CCPatch:
         else:
             print("Patch file "+filename+" does not exist")
         if (success):
-            self.freezeEncoders()
             self.queueEncoders()
+            self.freezeEncoders()
 
     def save(self):
         filename = "patch-"+time.strftime("%Y%m%d%H%M")+".json"
@@ -377,7 +390,7 @@ class CCPatch:
                 print(message)
                 if len(self.pending) == 0:
                     print("setting value to: "+str(message.value))
-                    self.values[self.curChan][message.control] = message.value
+                    self.setCCVal(self.curChan,message.control,message.value)
                     self.lastCCMessage = self.curCCMessage
                 else:
                     self.removeFromPendingIfCalibrated(self.controlToEncoder(message.control), message.value)
@@ -385,6 +398,9 @@ class CCPatch:
             self.processSysexListeners(message)
         else:
             print(message)
+        thread = Thread(target = self.refreshLEDs)
+        thread.start()    
+        #self.refreshLEDs()
 
     # Check to see if control is pending calibration, if it's value has been correctly calibrated
     # and if so, remove it from the pending list and turn off the corresponding pad LED.
@@ -393,15 +409,35 @@ class CCPatch:
             if value == self.getCCVal(self.curChan, self.encoderToControl(encoder)):
                 self.pending.remove(encoder)
                 indicatorPad = self.encoderToPad(encoder)
-                self.padLEDOff(indicatorPad)
                 return True
         return False
                 
+    def hasCCVal(self, channel, control):
+        return control in self.values[channel]
+
     def getCCVal(self, channel, control):
         if control in self.values[channel]:
             return self.values[self.curChan][control]
         else:
             return self.defaultEncoderVal
+
+    def setCCVal(self, channel, control, value):
+        self.values[channel][control] = value
+
+    def refreshLEDs(self):
+        # sleep 1 sec, or else indicator pads won't stay lit
+        time.sleep(0.25)
+        for encoder in self.encoders:
+            control = self.encoderToControl(encoder)
+            value = self.getCCVal(self.curChan, control)
+            pad = self.encoderToPad(encoder)
+            if encoder in self.pending:
+                self.padLED(pad,MAGENTA)
+            elif self.hasCCVal(self.curChan,control):
+                self.padLED(pad,BLUE)
+            else:
+                self.padLED(pad,OFF)
+        self.encodersFrozen = True
 
 
 patch = CCPatch()
