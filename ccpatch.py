@@ -65,7 +65,7 @@ class CCPatch:
     encoderToControl = lambda self,c:c-20
     encoderToPosition = lambda self,c:c-31
     encoderToPad = lambda self,c:c+0x50
-    encoders = range(0x20, 0x2F)
+    encoders = range(0x20, 0x30)
     encodersFrozen = False
     defaultEncoderVal = 0x40
     sysexListeners = {}
