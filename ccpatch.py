@@ -128,7 +128,7 @@ class CCPatch:
         self.unfreezeAllEncoders()
         
     def sendSysexToController(self,sysex):
-        print(str(sysex))
+        #print(str(sysex))
         #try:
         self.controllerPort.send(mido.Message('sysex', data=sysex))
         #except Exception as e:
@@ -149,8 +149,9 @@ class CCPatch:
         self.sendSysexToController(hexSetChanIndicator)
 
         print("Decrementing global channel " + str(self.curChan+1))
-        self.queueEncoders()
-        self.freezeAllEncoders()
+        if self.hasCCVals(self.curChan):
+            self.queueEncoders()
+            self.freezeAllEncoders()
 
     def incrementChan(self,value):
         self.emptyPending()
@@ -162,8 +163,9 @@ class CCPatch:
         hexSetChanIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, 0x70+self.curChan, 0x11]
         self.sendSysexToController(hexSetChanIndicator)
         print("Incrementing global channel " + str(self.curChan+1))
-        self.queueEncoders()
-        self.freezeAllEncoders()
+        if self.hasCCVals(self.curChan):
+            self.queueEncoders()
+            self.freezeAllEncoders()
 
     
     # Compares sysex commands. Returns either False, or with an array of remaining unmatched bytes from sysex2
@@ -212,11 +214,11 @@ class CCPatch:
                     self.sysexListeners[sysex]()
 
     def addSysexListener(self,message,function):
-        print("registering "+str(message))
+        #print("registering "+str(message))
         self.sysexListeners[message] = function
 
     def addCCListener(self,control,function):
-        print("registering "+str(control))
+        #print("registering "+str(control))
         self.ccListeners[control] = function
 
     def keyExists(self,key):
@@ -249,7 +251,7 @@ class CCPatch:
             print('Unable to open MIDI output: {}'.format(INSTRUMENT_DEVICE), file=sys.stderr)
 
     def freezeEncoder(self,encoder,value):
-        print("Freezing encoder: "+str(encoder)+", value: "+str(value))
+        #print("Freezing encoder: "+str(encoder)+", value: "+str(value))
         minVal = value
         maxVal = value
         if value < 127:
@@ -268,7 +270,7 @@ class CCPatch:
             print("Error sending sysex to device")
 
     def unfreezeEncoder(self,encoder):
-        print("Unfreezing controller: "+str(encoder))
+        #print("Unfreezing controller: "+str(encoder))
         hexSetMin = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x04, encoder, 0]
         hexSetMax = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x05, encoder, 127]
         try:
@@ -276,31 +278,6 @@ class CCPatch:
             self.controllerPort.send(mido.Message('sysex', data=hexSetMax))
         except Exception as e:
             print("Error sending sysex to device")
-
-    def freezeEncoders(self):
-        print(self.values)
-        for channeldata in self.values.items():
-            if int(channeldata[0]) == self.curChan:
-                print("freezing encoders for channel: "+str(channeldata[0]))
-                for controldata in channeldata[1].items():
-                    channel = int(channeldata[0])
-                    control = int(controldata[0])
-                    value = int(controldata[1])
-                    encoder = self.controlToEncoder(control)
-                    self.freezeEncoder(encoder,value)
-                    print("Encoder values frozen for channel: "+str(channel))
-        self.encodersFrozen = True
-
-    def unfreezeEncoders(self):
-        for channeldata in self.values.items():
-            for controldata in channeldata[1].items():
-                channel = int(channeldata[0])
-                control = int(controldata[0])
-                value = int(controldata[1])
-                encoder = self.controlToEncoder(control)
-                self.freezeEncoder(encoder,value)
-                print("Encoder values unlocked")
-        self.encodersFrozen = False
 
     def toggleFreezeEncoders(self,val):
         if self.encodersFrozen:
@@ -310,6 +287,7 @@ class CCPatch:
 
     # freeze all encoders, regardless of whether the corresponding control has a stored value
     def freezeAllEncoders(self):
+        print("Freezing all encoders")
         for encoder in self.encoders:
             control = self.encoderToControl(encoder)
             value = self.getCCVal(self.curChan, control)
@@ -318,6 +296,7 @@ class CCPatch:
         self.encodersFrozen = True
 
     def unfreezeAllEncoders(self):
+        print("Unfreezing all encoders")
         for encoder in self.encoders:
             self.unfreezeEncoder(encoder)
         self.encodersFrozen = False
@@ -329,7 +308,7 @@ class CCPatch:
 
     def queueEncoders(self):
         for channeldata in self.values.items():
-            print(channeldata)
+            #print(channeldata)
             # get the values for current (probably new) channel
             if channeldata[0] == self.curChan:
                 for controldata in channeldata[1].items():
@@ -339,9 +318,9 @@ class CCPatch:
                     targetEncoderPosition = self.encoderToPosition(targetEncoder)
                     targetIndicatorPad = self.encoderToPad(targetEncoder)
 
-                    print("targetControl:"+str(targetControl)+"\ntargetEncoder: "+str(targetEncoder)+"\ntargetEncoderPosition: "+str(targetEncoderPosition)+"\ntargetIndicatorPad: "+str(targetIndicatorPad))
+                    #print("targetControl:"+str(targetControl)+"\ntargetEncoder: "+str(targetEncoder)+"\ntargetEncoderPosition: "+str(targetEncoderPosition)+"\ntargetIndicatorPad: "+str(targetIndicatorPad))
 
-                    print("target indicator pad "+str(targetIndicatorPad))
+                    #print("target indicator pad "+str(targetIndicatorPad))
                     self.pending.add(targetEncoder)
 #                    self.padLED(targetIndicatorPad,MAGENTA)
 
@@ -389,7 +368,7 @@ class CCPatch:
             if self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
                 print(message)
                 if len(self.pending) == 0:
-                    print("setting value to: "+str(message.value))
+                    #print("setting value to: "+str(message.value))
                     self.setCCVal(self.curChan,message.control,message.value)
                     self.lastCCMessage = self.curCCMessage
                 else:
@@ -415,6 +394,9 @@ class CCPatch:
     def hasCCVal(self, channel, control):
         return control in self.values[channel]
 
+    def hasCCVals(self, channel):
+        return len(self.values[channel])
+
     def getCCVal(self, channel, control):
         if control in self.values[channel]:
             return self.values[self.curChan][control]
@@ -434,11 +416,13 @@ class CCPatch:
             if encoder in self.pending:
                 self.padLED(pad,MAGENTA)
             elif self.hasCCVal(self.curChan,control):
-                self.padLED(pad,BLUE)
+                if self.encodersFrozen:
+                    self.padLED(pad,BLUE)
+                else:
+                    self.padLED(pad,OFF)
+
             else:
                 self.padLED(pad,OFF)
-        self.encodersFrozen = True
-
 
 patch = CCPatch()
 patch.configure()
