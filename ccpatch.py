@@ -60,19 +60,31 @@ class CCPatch:
     controllerPort = None
     instrumentPort = None
     values = defaultdict(dict)
+    defaultValue = 64
     pending = set()
     controlToEncoder = lambda self,c:c+20
     encoderToControl = lambda self,c:c-20
     encoderToPosition = lambda self,c:c-31
     encoderToPad = lambda self,c:c+0x50
     encoders = range(0x20, 0x30)
+    channels = range(0,15)
     encodersFrozen = False
     defaultEncoderVal = 0x40
     sysexListeners = {}
     ccListeners = {}
     reservedCCs = {0x34,0x35,0x36}
 
+    def initVals(self):
+        for channel in self.channels:
+            for encoder in self.encoders:
+                self.setCCVal(channel,self.encoderToControl(encoder),self.defaultValue)
+
+    def init(self):
+        self.queueEncoders()
+        self.freezeAllEncoders()
+
     def configure(self):
+        self.initVals()
         mido.set_backend('mido.backends.rtmidi')
         self.connectController()
         self.connectInstrument()
@@ -426,6 +438,7 @@ class CCPatch:
 
 patch = CCPatch()
 patch.configure()
+patch.init()
 
 if len(sys.argv) > 1:
     patch.load(sys.argv[1])
