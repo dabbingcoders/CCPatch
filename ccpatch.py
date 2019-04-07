@@ -80,11 +80,11 @@ class CCPatch:
                 self.setCCVal(channel,self.encoderToControl(encoder),self.defaultValue)
 
     def init(self):
+        self.initVals()
         self.queueEncoders()
         self.freezeAllEncoders()
 
     def configure(self):
-        self.initVals()
         mido.set_backend('mido.backends.rtmidi')
         self.connectController()
         self.connectInstrument()
@@ -137,8 +137,6 @@ class CCPatch:
         hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, 0x40, 0x06]
         self.sendSysexToController(hexGetGlobalChan)
 
-        self.unfreezeAllEncoders()
-        
     def sendSysexToController(self,sysex):
         #print(str(sysex))
         #try:
@@ -306,14 +304,15 @@ class CCPatch:
             pad = self.encoderToPad(encoder)
             self.freezeEncoder(encoder,value)
         self.encodersFrozen = True
+        self.refreshLEDs()
 
     def unfreezeAllEncoders(self):
         print("Unfreezing all encoders")
         for encoder in self.encoders:
             self.unfreezeEncoder(encoder)
         self.encodersFrozen = False
-        self.refreshLEDs()
         self.emptyPending()
+        self.refreshLEDs()
 
     def emptyPending(self):
         self.pending = set()
@@ -370,15 +369,20 @@ class CCPatch:
             print("Error saving patch file")
             return
         print("Saved patch file "+filename+" to file...")
+        # if stop was pressed twice in a row, reset - (fires first press too :( )
+        #if self.lastCCMessage == self.curCCMessage:
+        #    self.init()
 
     def onMessage(self, name, message):
+        if message.type not in ['control_change','sysex']:
+           return 
         if message.type == 'control_change':
             self.processCCListeners(message)
             self.lastCCMessage = None
             self.curCCMessage = (name, message.channel, message.control, message.value)
             # only listen to new, unreserved CCs on the current channel
             if self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
-                print(message)
+                #print(message)
                 if len(self.pending) == 0:
                     #print("setting value to: "+str(message.value))
                     self.setCCVal(self.curChan,message.control,message.value)
