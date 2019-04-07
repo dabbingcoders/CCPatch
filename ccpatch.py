@@ -20,6 +20,7 @@ import re
 # TODO: Leave LEDs corresponding to active encoders lit in blue while in 'play mode' (e.g. nothing frozen - something in pending) 
 # TODO: When in calibration mode light up all active (and frozen) encoders in magenta
 # TODO: What do we do when the encoder happens to already have the right value?
+# TODO: Configure defaults to be helpful values - e.g. filter cutoff all the way open etc
 
 # 29/03:
 
@@ -48,10 +49,18 @@ import re
 
 CONTROLLER_DEVICE    =   "BeatStep"
 INSTRUMENT_DEVICE    =   "in_from_ccpatch"
-RED      =   0x01
-BLUE     =   0x10
-MAGENTA  =   0x11
-OFF      =   0x00
+RED      =  0x01
+BLUE     =  0x10
+MAGENTA  =  0x11
+OFF      =  0x00
+STOP     =  0x58
+START    =  0x59
+CTRLSEQ  =  0x5A
+EXTSYNC  =  0x5B
+RECALL   =  0x5C
+STORE    =  0x5D
+SHIFT    =  0x5E
+CHAN     =  0x5F
 
 class CCPatch:
     curChan = 0x00 
@@ -72,12 +81,18 @@ class CCPatch:
     defaultEncoderVal = 0x40
     sysexListeners = {}
     ccListeners = {}
-    reservedCCs = {0x34,0x35,0x36}
+    reservedCCs = range(0x34,0x41)
+    defaultVals = { 0x20:0,0x21:1,0x22:2,0x23:3,0x24:4,0x25:5,0x26:6,0x27:7,
+                   0x28:8,0x29:9,0x2a:10,0x2b:11,0x2c:12,0x2d:13,0x2e:14,0x2f:15 }
+    padFuncs = {}
 
     def initVals(self):
         for channel in self.channels:
             for encoder in self.encoders:
-                self.setCCVal(channel,self.encoderToControl(encoder),self.defaultValue)
+                self.setCCVal(channel,self.encoderToControl(encoder),self.defaultVals[encoder])
+
+    def doInit(self,val):
+        self.init()
 
     def init(self):
         self.initVals()
@@ -85,6 +100,13 @@ class CCPatch:
         self.freezeAllEncoders()
 
     def configure(self):
+        self.padFuncs    = { #CTRLSEQ:self.decrementChan,
+                             EXTSYNC:self.init,
+                             #RECALL:0x36,
+                             STORE:self.toggleFreezeEncoders,
+                             SHIFT:self.decrementChan,
+                             CHAN:self.incrementChan}
+
         mido.set_backend('mido.backends.rtmidi')
         self.connectController()
         self.connectInstrument()
@@ -96,52 +118,31 @@ class CCPatch:
 
         # Beatstep transport stop
         self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.save)
-        # Beatstep transport play
-        #self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.getUserTweakage)
 
-        # Listen for CC 0x34 from recall button to decrement,
-        # set global midi channel, and then get some user tweaks to sync
-        self.addCCListener((0x34), self.decrementChan)
-
-        # Listen for CC 0x35 from store button to increment,
-        # set global midi channel, and then get some user tweaks to sync
-        self.addCCListener((0x35), self.incrementChan)
-
-        # Listen for CC 0x36 from shift button to unfreeze all controllers 
-        self.addCCListener((0x36), self.toggleFreezeEncoders)
-
-        # Set Beatstep recall button to CC switch mode
-        hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5C, 0x08]
-        self.sendSysexToController(hexSetRecallMMC)
-
-        # Set Beatstep store button to CC switch mode
-        hexSetRecallMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5D, 0x08]
-        self.sendSysexToController(hexSetRecallMMC)
-
-        # Set Beatstep shift button to CC switch mode
-        hexSetShiftMMC = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, 0x5E, 0x08]
-        self.sendSysexToController(hexSetShiftMMC)
-
-        # Set Beatstep recall button CC control # to 0x34 
-        hexSetRecallMMCx34 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5C, 0x34]
-        self.sendSysexToController(hexSetRecallMMCx34)
-
-        # Set Beatstep store button CC control # to 0x35 
-        hexSetStoreMMCx35 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5D, 0x35]
-        self.sendSysexToController(hexSetStoreMMCx35)
-
-        # Set Beatstep shift button CC control # to 0x36 
-        hexSetStoreMMCx36 = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, 0x5E, 0x36]
-        self.sendSysexToController(hexSetStoreMMCx36)
+        self.assignPadFunctions()
 
         hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, 0x40, 0x06]
         self.sendSysexToController(hexGetGlobalChan)
+
+    def assignPadFunctions(self):
+        i = 0
+        for padData in self.padFuncs.items():
+            self.setPadToSwitchMode(padData[0])
+            self.assignControlToPad(padData[0],self.reservedCCs[i])
+            self.addCCListener((self.reservedCCs[i]),padData[1])
+            i=i+1
+
+    def setPadToSwitchMode(self,pad):
+        self.sendSysexToController([0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x01, pad, 0x08])
+
+    def assignControlToPad(self,pad,control):
+        self.sendSysexToController([0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x03, pad, control])
 
     def sendSysexToController(self,sysex):
         #print(str(sysex))
         #try:
         self.controllerPort.send(mido.Message('sysex', data=sysex))
-        #except Exception as e:
+       #except Exception as e:
         #    print("Error sending sysex to device")
 
     def setCurChan(self,value) :
@@ -151,7 +152,6 @@ class CCPatch:
     def decrementChan(self,value):
         self.emptyPending()
         if self.curChan > 0: self.curChan -= 1 
-        #else: self.curChan = 15 
 
         hexSetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x40, 0x06, self.curChan]
         self.sendSysexToController(hexSetGlobalChan)
@@ -268,8 +268,8 @@ class CCPatch:
             minVal = value
             maxVal = value+1
         else:
-           minVal = value
-           maxVal = value+1
+           minVal = value-1
+           maxVal = value
 
         hexSetMin = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x04, encoder, minVal]
         hexSetMax = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x05, encoder, maxVal]
@@ -277,6 +277,8 @@ class CCPatch:
             self.controllerPort.send(mido.Message('sysex', data=hexSetMin))
             self.controllerPort.send(mido.Message('sysex', data=hexSetMax))
         except Exception as e:
+            print(str(hexSetMin))
+            print(str(hexSetMax))
             print("Error sending sysex to device")
 
     def unfreezeEncoder(self,encoder):
@@ -293,6 +295,7 @@ class CCPatch:
         if self.encodersFrozen:
             self.unfreezeAllEncoders()
         else:
+            self.queueEncoders()
             self.freezeAllEncoders()
 
     # freeze all encoders, regardless of whether the corresponding control has a stored value
@@ -328,16 +331,8 @@ class CCPatch:
                     targetEncoder = self.controlToEncoder(targetControl)
                     targetEncoderPosition = self.encoderToPosition(targetEncoder)
                     targetIndicatorPad = self.encoderToPad(targetEncoder)
-
-                    #print("targetControl:"+str(targetControl)+"\ntargetEncoder: "+str(targetEncoder)+"\ntargetEncoderPosition: "+str(targetEncoderPosition)+"\ntargetIndicatorPad: "+str(targetIndicatorPad))
-
-                    #print("target indicator pad "+str(targetIndicatorPad))
                     self.pending.add(targetEncoder)
-#                    self.padLED(targetIndicatorPad,MAGENTA)
 
-        #while len(self.pending) > 0:
-        #    print("waiting...")
-            
     def padLED(self, targetPad, color):
         hexSetEncoderIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, targetPad, color]
         self.sendSysexToController(hexSetEncoderIndicator)
@@ -369,9 +364,6 @@ class CCPatch:
             print("Error saving patch file")
             return
         print("Saved patch file "+filename+" to file...")
-        # if stop was pressed twice in a row, reset - (fires first press too :( )
-        #if self.lastCCMessage == self.curCCMessage:
-        #    self.init()
 
     def onMessage(self, name, message):
         if message.type not in ['control_change','sysex']:
@@ -382,7 +374,7 @@ class CCPatch:
             self.curCCMessage = (name, message.channel, message.control, message.value)
             # only listen to new, unreserved CCs on the current channel
             if self.curCCMessage != self.lastCCMessage and message.channel == self.curChan and message.control not in self.reservedCCs:
-                #print(message)
+                print(message)
                 if len(self.pending) == 0:
                     #print("setting value to: "+str(message.value))
                     self.setCCVal(self.curChan,message.control,message.value)
