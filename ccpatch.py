@@ -75,15 +75,18 @@ class CCPatch:
     encoderToControl = lambda self,c:c-20
     encoderToPosition = lambda self,c:c-31
     encoderToPad = lambda self,c:c+0x50
-    encoders = range(0x20, 0x30)
+    #encoders = range(0x20, 0x30)
+    encoders = (0x20,0x21,0x22, 0x24,0x25,0x26, 0x28,0x29,0x2a, 0x2c,0x2d,0x2e)
     channels = range(0,15)
     encodersFrozen = False
     defaultEncoderVal = 0x40
     sysexListeners = {}
     ccListeners = {}
     reservedCCs = range(0x34,0x41)
-    defaultVals = { 0x20:0,0x21:1,0x22:2,0x23:3,0x24:4,0x25:5,0x26:6,0x27:7,
-                   0x28:8,0x29:9,0x2a:10,0x2b:11,0x2c:12,0x2d:13,0x2e:14,0x2f:15 }
+    defaultVals = { 0x20:64,0x21:127,0x22:0,0x23:0,
+                    0x24:64,0x25:127,0x26:0,0x27:0,
+                    0x28:64,0x29:127,0x2a:0,0x2b:0,
+                    0x2c:64,0x2d:127,0x2e:0,0x2f:0 }
     padFuncs = {}
 
     def initVals(self):
@@ -100,9 +103,9 @@ class CCPatch:
         self.freezeAllEncoders()
 
     def configure(self):
-        self.padFuncs    = { #CTRLSEQ:self.decrementChan,
+        self.padFuncs    = { #CTRLSEQ:self.doSomething,
                              EXTSYNC:self.init,
-                             #RECALL:0x36,
+                             #RECALL:self.doSomething,
                              STORE:self.toggleFreezeEncoders,
                              SHIFT:self.decrementChan,
                              CHAN:self.incrementChan}
