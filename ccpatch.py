@@ -104,7 +104,7 @@ class CCPatch:
 
     def configure(self):
         self.padFuncs    = { #CTRLSEQ:self.doSomething,
-                             EXTSYNC:self.init,
+                             EXTSYNC:self.doInit,
                              #RECALL:self.doSomething,
                              STORE:self.toggleFreezeEncoders,
                              SHIFT:self.decrementChan,
@@ -437,6 +437,7 @@ class CCPatch:
 
 patch = CCPatch()
 patch.configure()
+
 patch.init()
 
 if len(sys.argv) > 1:
