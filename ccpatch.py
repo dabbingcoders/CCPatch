@@ -71,9 +71,15 @@ class CCPatch:
     values = defaultdict(dict)
     defaultValue = 64
     pending = set()
-    controlToEncoder = lambda self,c:c+20
-    encoderToControl = lambda self,c:c-20
-    encoderToPosition = lambda self,c:c-31
+    controlMap =   {0x20:0x0C,0x21:0x0D,0x22:0x0E, 
+                    0x24:0x0F,0x25:0x10,0x26:0x11,
+                    0x28:0x12,0x29:0x13,0x2A:0x14,
+                    0x2C:0x15,0x2D:0x16,0x2E:0x17}
+    #print(list(mydict.keys())[list(mydict.values()).index(16)]) # Prints george
+    #controlToEncoder = lambda self,c:c+20
+    controlToEncoder = lambda self,c:list(self.controlMap.keys())[list(self.controlMap.values()).index(c)]
+    #encoderToControl = lambda self,c:c-20
+    encoderToControl = lambda self,e:self.controlMap[e]
     encoderToPad = lambda self,c:c+0x50
     #encoders = range(0x20, 0x30)
     encoders = (0x20,0x21,0x22, 0x24,0x25,0x26, 0x28,0x29,0x2a, 0x2c,0x2d,0x2e)
@@ -332,7 +338,6 @@ class CCPatch:
                     targetControl = int(controldata[0])
                     targetValue = int(controldata[1])
                     targetEncoder = self.controlToEncoder(targetControl)
-                    targetEncoderPosition = self.encoderToPosition(targetEncoder)
                     targetIndicatorPad = self.encoderToPad(targetEncoder)
                     self.pending.add(targetEncoder)
 
@@ -383,7 +388,10 @@ class CCPatch:
                     self.setCCVal(self.curChan,message.control,message.value)
                     self.lastCCMessage = self.curCCMessage
                 else:
-                    self.removeFromPendingIfCalibrated(self.controlToEncoder(message.control), message.value)
+                    encoder = self.controlToEncoder(message.control)
+                    print(str(encoder))
+                    self.removeFromPendingIfCalibrated(encoder, message.value)
+                    #self.removeFromPendingIfCalibrated(self.controlToEncoder(message.control), message.value)
         elif message.type == 'sysex':         
             self.processSysexListeners(message)
         else:
