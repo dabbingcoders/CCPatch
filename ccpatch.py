@@ -37,6 +37,7 @@ import re
 #                                                                                       #
 #   Create a patch:     Execute ccpatch.py and tweak knobs                              #
 #   Save a patch:       Send a sysex [7F,7F,06,01] message to ccpatch.py                #
+#   Play a patch:       Send a sysex [7F,7F,06,02] message to ccpatch.py                #
 #   Load a patch:       Pass filename to ccpatch.py:                                    #
 #                           - Load values into memory                                   #
 #                           - Broadcast the values to synths etc                        #
@@ -128,6 +129,9 @@ class CCPatch:
         # Beatstep transport stop
         self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x01,0xF7), self.save)
 
+        # Beatstep transport start
+        self.addSysexListener((0xF0,0x7F,0x7F,0x06,0x02,0xF7), self.play)
+
         self.assignPadFunctions()
 
         hexGetGlobalChan = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, 0x40, 0x06]
@@ -149,10 +153,17 @@ class CCPatch:
 
     def sendSysexToController(self,sysex):
         #print(str(sysex))
-        #try:
-        self.controllerPort.send(mido.Message('sysex', data=sysex))
-       #except Exception as e:
-        #    print("Error sending sysex to device")
+        try:
+            self.controllerPort.send(mido.Message('sysex', data=sysex))
+        except Exception as e:
+            print("Error sending sysex to device")
+
+    def sendControlValueToInstrument(self,channel,control,value):
+        #print(str(sysex))
+        try:
+            self.instrumentPort.send(mido.Message('control_change', channel=channel, control=control, value=value))
+        except Exception as e:
+            print("Error sending sysex to device")
 
     def setCurChan(self,value) :
         print("Setting channel to: "+str(value))
@@ -372,6 +383,15 @@ class CCPatch:
             print("Error saving patch file")
             return
         print("Saved patch file "+filename+" to file...")
+
+    def play(self):
+        for channeldata in self.values.items():
+                for controldata in channeldata[1].items():
+                    control = int(controldata[0])
+                    value = int(controldata[1])
+                    encoder = self.controlToEncoder(control)
+                    pad = self.encoderToPad(encoder)
+                    self.sendControlValueToInstrument(channel,control,value)
 
     def onMessage(self, name, message):
         if message.type not in ['control_change','sysex']:
