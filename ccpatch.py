@@ -78,7 +78,8 @@ class CCPatch:
                     0x2C:0x15,0x2D:0x16,0x2E:0x17}
     #print(list(mydict.keys())[list(mydict.values()).index(16)]) # Prints george
     #controlToEncoder = lambda self,c:c+20
-    controlToEncoder = lambda self,c:list(self.controlMap.keys())[list(self.controlMap.values()).index(c)]
+    #look encoder up from controller (if it exists)
+    #controlToEncoder = lambda self,c:list(self.controlMap.keys())[list(self.controlMap.values()).index(c)]
     #encoderToControl = lambda self,c:c-20
     encoderToControl = lambda self,e:self.controlMap[e]
     encoderToPad = lambda self,c:c+0x50
@@ -95,6 +96,11 @@ class CCPatch:
                     0x28:64,0x29:127,0x2a:0,0x2b:0,
                     0x2c:64,0x2d:127,0x2e:0,0x2f:0 }
     padFuncs = {}
+
+    def controlToEncoder(self,control):
+        if control in self.controlMap.values():
+            return list(self.controlMap.keys())[list(self.controlMap.values()).index(control)]
+        return 0
 
     def initVals(self):
         for channel in self.channels:
@@ -346,11 +352,12 @@ class CCPatch:
             # get the values for current (probably new) channel
             if channeldata[0] == self.curChan:
                 for controldata in channeldata[1].items():
-                    targetControl = int(controldata[0])
-                    targetValue = int(controldata[1])
-                    targetEncoder = self.controlToEncoder(targetControl)
-                    targetIndicatorPad = self.encoderToPad(targetEncoder)
-                    self.pending.add(targetEncoder)
+                    control = int(controldata[0])
+                    value = int(controldata[1])
+                    encoder = self.controlToEncoder(control)
+                    if encoder > 0:
+                        pad = self.encoderToPad(encoder)
+                        self.pending.add(encoder)
 
     def padLED(self, targetPad, color):
         hexSetEncoderIndicator = [0x00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, 0x10, targetPad, color]
@@ -390,9 +397,11 @@ class CCPatch:
                     control = int(controldata[0])
                     value = int(controldata[1])
                     encoder = self.controlToEncoder(control)
-                    pad = self.encoderToPad(encoder)
-                    self.sendControlValueToInstrument(channel,control,value)
-
+                    if encoder > 0:
+                        pad = self.encoderToPad(encoder)
+                        self.sendControlValueToInstrument(channeldata[0],control,value)
+                        self.padLED(pad,RED)
+                    
     def onMessage(self, name, message):
         if message.type not in ['control_change','sysex']:
            return 
@@ -410,7 +419,8 @@ class CCPatch:
                 else:
                     encoder = self.controlToEncoder(message.control)
                     print(str(encoder))
-                    self.removeFromPendingIfCalibrated(encoder, message.value)
+                    if encoder > 0:
+                        self.removeFromPendingIfCalibrated(encoder, message.value)
                     #self.removeFromPendingIfCalibrated(self.controlToEncoder(message.control), message.value)
         elif message.type == 'sysex':         
             self.processSysexListeners(message)
